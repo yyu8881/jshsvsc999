@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🛼轮滑射击冒险 - 跨平台神作！</title>
+<style>
+  * { margin: 0; padding: 0; touch-action: none; }
+  body { 
+    font-family: "微软雅黑", sans-serif; 
+    background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 50%, #a8edea 100%); 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center; 
+    height: 100vh; 
+    color: #333; 
+    overflow: hidden;
+  }
+  h1 { 
+    font-size: 28px; 
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3); 
+    margin-bottom: 10px; 
+    animation: glow 2s infinite alternate;
+    color: #ff6b35;
+  }
+  @keyframes glow { 0% { text-shadow: 0 0 5px #ff6b35; } 100% { text-shadow: 0 0 20px #ff6b35, 0 0 30px #fcb69f; } }
+  #gameInfo { 
+    display: flex; 
+    justify-content: space-between; 
+    width: 90%; 
+    font-size: 18px; 
+    font-weight: bold;
+    margin-bottom: 15px; 
+  }
+  #canvas { 
+    border: 5px solid rgba(255,107,53,0.6); 
+    border-radius: 20px; 
+    background: linear-gradient(to bottom, #87CEEB 0%, #90EE90 100%); 
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4); 
+    touch-action: none;
+    position: relative;
+  }
+  #joystick { 
+    position: absolute; 
+    bottom: 20px; 
+    left: 20px; 
+    width: 120px; 
+    height: 120px; 
+    background: rgba(255,255,255,0.3); 
+    border-radius: 50%; 
+    opacity: 0; 
+    transition: opacity 0.3s; 
+    pointer-events: none;
+  }
+  #joystick-knob { 
+    position: absolute; 
+    width: 50px; 
+    height: 50px; 
+    background: #ff6b35; 
+    border-radius: 50%; 
+    top: 35px; 
+    left: 35px; 
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3); 
+    transition: all 0.1s; 
+  }
+  #controls { 
+    display: flex; 
+    gap: 15px; 
+    margin-top: 15px; 
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .ctrl { 
+    width: 80px; height: 80px; 
+    border-radius: 50%; 
+    border: none; 
+    font-size: 28px; 
+    color: white; 
+    cursor: pointer; 
+    box-shadow: 0 5px 20px rgba(0,0,0,0.3); 
+    transition: all 0.2s; 
+  }
+  .jump { background: linear-gradient(45deg, #feca57, #ff9ff3); }
+  .shoot { background: linear-gradient(45deg, #ff4757, #ff3838); }
+  .ctrl:active { transform: scale(0.9); }
+  #startBtn, #pauseBtn, #resetBtn, #shareBtn { 
+    padding: 15px 30px; 
+    font-size: 16px; 
+    border: none; 
+    border-radius: 30px; 
+    background: linear-gradient(45deg, #ff9ff3, #f368e0); 
+    color: white; 
+    cursor: pointer; 
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3); 
+    transition: all 0.3s; 
+    margin: 5px;
+  }
+  button:hover { transform: scale(1.05); }
+  button:active { transform: scale(0.95); }
+  .hidden { display: none !important; }
+  #levelInfo { font-size: 20px; color: #ff6b35; text-align: center; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<h1>🛼轮滑射击冒险</h1>
+<div id="levelInfo">关卡: <span id="level">1</span> | 生命: <span id="health">3</span></div>
+<div id="gameInfo">
+  <div>分数: <span id="score">0</span></div>
+  <div>敌人: <span id="enemies">0</span></div>
+  <div>最高: <span id="highScore">0</span></div>
+</div>
+<canvas id="canvas" width="360" height="500"></canvas>
+<div id="joystick">
+  <div id="joystick-knob"></div>
+</div>
+<div id="controls">
+  <button class="ctrl jump" id="jumpBtn">⬆️</button>
+  <button class="ctrl shoot" id="shootBtn">💥</button>
+</div>
+<div style="margin-top: 10px;">
+  <button id="startBtn">开始轮滑</button>
+  <button id="pauseBtn" class="hidden">暂停</button>
+  <button id="resetBtn">重玩</button>
+  <button id="shareBtn">分享战绩</button>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const WIDTH = 360, HEIGHT = 500;
+const GRAVITY = 0.5;
+const JUMP = -13;
+const MAX_SPEED = 6;
+
+let gameState = {
+  level: 1,
+  score: 0,
+  highScore: localStorage.getItem('skateHighScore') || 0,
+  health: 3,
+  isPlaying: false,
+  isPaused: false
+};
+
+let player = {
+  x: 50, y: 300, vx: 0, vy: 0, width: 35, height: 45, onGround: false
+};
+
+let joystick = {
+  active: false,
+  centerX: 0, centerY: 0,
+  knobX: 0, knobY: 0,
+  maxDist: 40,
+  power: 0,
+  angle: 0
+};
+
+let keys = { jump: false, shoot: false };
+let bullets = [];
+let enemies = [];
+let platforms = [];
+let particles = [];
+let levelCleared = false;
+
+// 更多关卡内容 (5关循环)
+const LEVELS = [
+  // 关1: 基础
+  { platforms: [[0,450,360,50], [120,380,100,20], [220,300,80,20]], enemies: [{x:180,y:420,w:28,h:28,vx:1.5}] },
+  // 关2: 跳跃挑战
+  { platforms: [[0,450,360,50], [60,350,70,20], [180,250,90,20], [280,380,70,20]], enemies: [{x:90,y:420,w:28,h:28,vx:2}, {x:250,y:340,w:28,h:28,vx:-1.5}] },
+  // 关3: 密集敌人
+  { platforms: [[0,450,360,50], [40,320,60,20], [140,220,70,20], [240,350,60,20]], enemies: [{x:70,y:420,w:28,h:28,vx:2.5}, {x:170,y:290,w:28,h:28,vx:-2}, {x:270,y:420,w:28,h:28,vx:1}] },
+  // 关4: 高难度平台
+  { platforms: [[0,450,360,50], [100,280,50,20], [200,380,50,20], [50,200,50,20]], enemies: [{x:130,y:420,w:28,h:28,vx:2}, {x:230,y:350,w:28,h:28,vx:-2.5}, {x:80,y:250,w:28,h:28,vx:1.5}] },
+  // 关5: Boss级
+  { platforms: [[0,450,360,50], [150,300,80,20]], enemies: [{x:150,y:420,w:40,h:40,vx:3,color:'#ff0000'}] }
+];
+
+let currentLevel = LEVELS[0];
+
+// 加载关卡
+function loadLevel(lvl) {
+  currentLevel = LEVELS[(lvl-1) % LEVELS.length];
+  platforms = currentLevel.platforms.map(p => ({x:p[0], y:p[1], w:p[2], h:p[3]}));
+  enemies = currentLevel.enemies.map(e => ({...e, color: e.color || '#ff4444'}));
+  player.x = 50;
+  player.y = 300;
+  levelCleared = false;
+  updateLevelDisplay();
+}
+
+// 更新显示
+function updateLevelDisplay() {
+  document.getElementById('level').textContent = gameState.level;
+}
+
+// 绘制玩家 (轮滑少年)
+function drawPlayer() {
+  ctx.fillStyle = '#ff6b35';
+  ctx.fillRect(player.x, player.y, player.width, player.height);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(player.x+8, player.y+8, 6, 6); // 眼睛
+  ctx.fillRect(player.x+22, player.y+8, 6, 6);
+  // 轮滑鞋
+  ctx.fillStyle = '#333';
+  ctx.fillRect(player.x+5, player.y+player.height-8, 12, 6);
+  ctx.fillRect(player.x+20, player.y+player.height-8, 12, 6);
+}
+
+// 其他绘制函数类似之前
+function drawPlatform(p) {
+  ctx.fillStyle = '#8B4513';
+  ctx.fillRect(p.x, p.y, p.w, p.h);
+  ctx.fillStyle = '#A0522D';
+  ctx.fillRect(p.x+5, p.y+5, p.w-10, p.h-10);
+}
+
+function drawEnemy(e) {
+  ctx.fillStyle = e.color;
+  ctx.fillRect(e.x, e.y, e.w, e.h);
+  ctx.fillStyle = 'white';
+  ctx.fillRect(e.x+4, e.y+4, 5, 5);
+  ctx.fillRect(e.x+e.w-9, e.y+4, 5, 5);
+}
+
+function drawBullet(b) {
+  ctx.fillStyle = '#ffeb3b';
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, 5, 0, Math.PI*2);
+  ctx.fill();
+}
+
+// 粒子
+function updateParticles() {
+  particles = particles.filter(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+    ctx.save();
+    ctx.globalAlpha = p.life / 25;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, 4, 4);
+    ctx.restore();
+    return p.life > 0;
+  });
+}
+
+// 更新玩家 (轮滑物理)
+function updatePlayer() {
+  // 摇杆控制速度
+  player.vx = joystick.power * Math.cos(joystick.angle) * MAX_SPEED;
+  player.vy += GRAVITY;
+  player.x += player.vx * 0.8; // 轮滑惯性
+  player.y += player.vy;
+
+  // 边界
+  if (player.x < 0) player.x = 0;
+  if (player.x > WIDTH - player.width) player.x = WIDTH - player.width;
+  if (player.y > HEIGHT) { gameState.health--; respawn(); }
+
+  // 平台碰撞
+  player.onGround = false;
+  platforms.forEach(p => {
+    if (player.x < p.x + p.w && player.x + player.width > p.x &&
+        player.y < p.y + p.h && player.y + player.height > p.y) {
+      if (player.vy > 0 && player.y <= p.y + 5) {
+        player.y = p.y - player.height;
+        player.vy = 0;
+        player.onGround = true;
+      }
+    }
+  });
+
+  // 敌人碰撞
+  enemies.forEach((e, i) => {
+    if (player.x < e.x + e.w && player.x + player.width > e.x &&
+        player.y < e.y + e.h && player.y + player.height > e.y) {
+      gameState.health--;
+      enemies.splice(i, 1);
+      addParticles(e.x + e.w/2, e.y + e.h/2, '#ff4444', 12);
+      respawn();
+    }
+  });
+}
+
+// 添加粒子
+function addParticles(x, y, color, count) {
+for(设k=0；k<count；k++){
+particles.push({
+X，y，
+VX：(Math.random()-0.5)*10，
+Vy：(Math.random()-0.5)*10，
+寿命：25，
+颜色
+    });
+  }
+}
+
+// 重生
+函数重生(){
+if(gameState.Health<=0){
+GameOver()；
+返回；
+  }
+player.x=50；
+player.y=300；
+player.vy=0；
+}
+
+// 更新敌人
+函数updateEnemies(){
+敌人.foreach(e=>{
+e.x+=e.vx；
+如果(e.x<=0||e.x>=WIDTH-e.w)e.vx*=-1；
+  });
+文件。getElementById('敌人')。textContent=敌人.长度；
+}
+
+// 更新子弹
+函数updateBullets(){
+bullet=bullet.filter(b=>{
+b.x+=b.vx；
+if(b.x>WIDTH||b.x<0)返回false；
+敌人.foreach((e，i)=>{
+if(b.x>e.x&&b.X<e.X+e.W&&B.Y>E.Y&&B.Y<E.y+E.H){
+敌人.剪接(i，1)；
+gameState.score+=150；
+addParticle(e.x+e.W/2，E.Y+E.H/2，'#ffeb3b'，20)；
+返回false；
+      }
+    });
+返回true；
+  });
+}
+
+// 通关检查
+函数checkWin(){
+if(敌人.长度===0&&！levelCleared){
+levelCleared=true；
+gameState.score+=800；
+setTimeout(()=>{
+gameState.level++；
+loadLevel(gameState.level)；
+}, 2000);
+  }
+}
+
+// 游戏循环
+函数gameloop(){
+如果(！gameestate.IsPlaying||gameState.isPaused)返回requestAnimationFrame(gameloop)；
+
+ctx.clearRect(0，0，宽度，高度)；
+
+// 动态背景 (轮滑轨迹云)
+ctx.fillStyle='rgba(255，255，255，0.6)'；
+for(设i=0；i<4；i++){
+ctx.beginPath()；
+ctx.arc((Date.now()*0.005+i*80)%宽度，40+i*25，25，0，Math.PI*2)；
+ctx.fill()；
+  }
+
+updatePlayer()；
+updateEnemies()；
+updateBullets()；
+updateParticle()；
+checkWin()；
+
+平台.foreach(drawPlatform)；
+敌人.foreach(drawEnemy)；
+bullets.forEach(drawBullet)；
+drawPlayer()；
+
+//UI
+文件。getElementById('score')。textContent=gameState。分数；
+文件。getElementById('health')。textContent=gameState。健康；
+if(gameState.score>gameState.highScore){
+gameState.highScore=gameState.score；
+localStorage。setitem('skateHighScore'，gameState.highscore)；
+  }
+文件。getElementById('highscore')。textContent=gameState。highscore；
+
+requestAnimationFrame(游戏循环)；
+}
+
+// 摇杆事件
+Const joysteEl=document.getElementById('joyste')；
+常数Knobel=document.getElementById('操纵杆-旋钮')；
+
+功能更新操纵杆(Touchx，touchY){
+Const dx=Touchx-操纵杆.centerX；
+Const dy=touchy-操纵杆。中心；
+Const dist=Math.sqrt(dx*dx+dy*dy)；
+if(距离<操纵杆.maxDist){
+操纵杆.旋钮X=Touchx-操纵杆.中心X+操纵杆.中心X-25；
+乔伊斯特。Knoby=触摸Y-大豆.centerery+大豆.中心Y-25；
+操纵杆功率=距离/操纵杆最大距离；
+操纵杆角度=Math.atan2(dy，dx)；
+}else{
+const angle=Math.atan2(dy，dx)；
+操纵杆.旋钮X=数学.Cos(角度)*操纵杆.max距离+操纵杆.centerX-25；
+乔伊斯特Knoby=数学。sin(角度)*joyste.maxDist+joyste.centerY-25；
+操纵杆功率=1；
+操纵杆。角度=角度；
+  }
+}
+
+canvas.addEventListener('touchstart'，(e)=>{
+e.preventDefault()；
+Const rect=canvas.getBoundingClientRect()；
+Const touch=e.touches[0]；
+常数X=touch.clientX-rect.left；
+常数y=touch.clientY-rect.top；
+if(x<WIDTH/2&&y>HEIGHT-150){//左侧摇杆区
+joyste.active=真；
+操纵杆El.style.opacity='0.8'；
+操纵杆.中心X=x；
+操纵杆.中心=y；
+操纵杆.旋钮X=X-25；
+操纵杆.旋钮=Y-25；
+操纵杆功率=0；
+  }
+});
+
+canvas.addEventListener('touchmove'，(e)=>{
+e.preventDefault()；
+if(！joyste.active)返回；
+Const rect=canvas.getBoundingClientRect()；
+Const touch=e.touches[0]；
+常数X=touch.clientX-rect.left；
+常数y=touch.clientY-rect.top；
+更新操纵杆(x，y)；
+旋钮El.style.left=操纵杆.旋钮X+'px'；
+旋钮El.style.top=操纵杆.旋钮+'px'；
+});
+
+canvas.addEventListener('touchend'，(e)=>{
+e.preventDefault()；
+if(操纵杆激活){
+操纵杆.active=false；
+goystoreEl.style.opacity="0"；
+操纵杆功率=0；
+操纵杆.旋钮X=操纵杆.中心X-25；
+joyste.knobY=joyste.centerY-25；
+旋钮El.style.left=操纵杆.旋钮X+'px'；
+旋钮El.style.top=操纵杆.旋钮+'px'；
+  }
+});
+
+// 按钮控制
+['jumpBtn'，'shootBtn'].forEach(id=>{
+Const btn=document.getElementById(id)；
+BTN.ontouchstart=()=>keys[id.replace('Btn'，")]=true；
+BTN.ontouchend=()=>键[id.replace('Btn'，")]=false；
+BTN.onmousedown=()=>keys[id.replace('Btn'，")]=true；
+BTN.onmouseup=()=>keys[id.replace('Btn'，")]=false；
+});
+
+// 输入处理
+函数handleInput(){
+if(keys.jump&&player.onGround){
+player.vy=跳转；
+addParticle(播放器。X+播放器.宽度/2，播放器.y+播放器.高度，'#ff6b35'，8)；
+keys.jump=false；
+  }
+if(keys.shoot){
+子弹。推动({x:player.X+player。宽度，y:player.y+20，vx:10，vy:0})；
+addParticle(player.x+player.宽度，player.y+20，'#ffeb3b'，5)；
+keys.shoot=false；
+  }
+}
+
+// 主循环
+函数mainloop(){
+handleInput()；
+gameloop()；
+requestAnimationFrame(主循环)；
+}
+
+// 游戏结束
+函数GameOver(){
+gameState.isplaying=false；
+alert('轮滑冒险结束！最终分数：${gameState.score}\n继续挑战更高关！‘)；
+}
+
+// 按钮事件
+文件。getElementById('startBtn').onclick=()=>{
+gameState.isplaying=true；
+gameState.isPaused=false；
+loadLevel(1)；
+文件。getElementById('startBtn').classList.add('hidden')；
+文件。getElementById('pauseBtn').classList.remove('hidden')；
+主回路()；
+};
+
+文件。getElementById('pauseBtn').onclick=()=>{
+gameState.isPaused=！gameState.isPaused；
+文件。getElementById('pauseBtn')。textContent=gameState。IsPaused？'继续'：'暂停'；
+};
+
+文件。getElementById('resetBtn').onclick=()=>{
+gameState.isplaying=false；
+gameState.level=1；
+gameState.score=0；
+gameState.Health=3；
+loadLevel(1)；
+文件。getElementById('startBtn').classList.remove('hidden')；
+文件。getElementById('pauseBtn').classList.add('hidden')；
+};
+
+文件。getElementById('shareBtn').onclick=()=>{
+常量文本='轮滑射击冒险第\({gameState.level}关！\){gameState.score}分高分，摇杆移动超丝滑！来PK🛼 #轮滑冒险#射击闯关#抖音小游戏'；
+if(navigator.share){
+navigator.share({title：'轮滑射击冒险'，text，url:window.location.href})；
+}else{
+领航员。剪贴板。WRITETEXT(文本)。然后(()=>警报('文案复制成功，去抖音发视频起飞！'))；
+  }
+};
+
+// 初始化
+updateLevelDisplay()；
+操纵杆.centerX=80；
+操纵杆.中心=高度-80；
+</script>
+</body>
+</html>
